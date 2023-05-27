@@ -28,31 +28,33 @@ using OAuth_Library;
 //Create a new Instance of the DiscordOAuth
 DiscordOAuth dc = new DiscordOAuth("[RedirectUrl]", "[ClientID]", "[ClientSecret]");
 
-//Subscribe to the Event. This Event is triggered, when someone authorizes or denies Authorization.
+//This Event is triggered, when someone authorizes or denies Authorization.
 dc.OAuth += OAuth;
+
+//This Event is triggered, when someone denies Authorization.
+dc.OnError += OnError;
 
 //Get a Link, where someone can authorize
 string URL = dc.GenerateOAuth(new List<DiscordOAuth.Scope>() { DiscordOAuth.Scope.identify})
 
+
 //Example of how to get the authorization data
-static void OAuth(object sender, DiscordOAuth.OAuthData Data)
+public static void OAuth(object sender, DiscordOAuth.OAuthData Data)
 {
+    var data_2 = dc.GetCurrentAuthorizationInformation(Data.AccessToken);
+
+    Console.WriteLine("----------");
     Console.WriteLine($"State: {Data.State}");
-    Console.WriteLine($"DateTime: {Data.DateTime}");
-    Console.WriteLine($"Code: {Data.Code}");
-    Console.WriteLine($"Error: {Data.Error}");
-    Console.WriteLine($"Error Description: {Data.ErrorDescription}");
+    Console.WriteLine($"Code: {Data.AccessToken}");
+    Console.WriteLine(data_2.user.username);
+    Console.WriteLine("----------");
+    Console.WriteLine("");
+}
 
-    //Check if Authorization worked. 
-    if(Data.Error == null)
-    {
-        //Gets Data which contains the Bearer Token
-        var BearerData = dc.ExchangeCodeForBearer(Data.Code);
-
-        //Gets Data of The Authorization
-        var AuthorizationData = dc.GetCurrentAuthorizationInformation(BearerData.AccessToken);
-        Console.WriteLine($"Username: {AuthorizationData.username}");
-    }
+//Example of how to print the Error in the Console
+public static void OnError(object sender, DiscordOAuth.ErrorData args)
+{
+    Console.WriteLine(args.Message + "  -  " + args.State);
 }
 ``` 
 

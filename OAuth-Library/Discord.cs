@@ -1,12 +1,15 @@
 ﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Security.Cryptography;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Web;
-using static System.Net.Mime.MediaTypeNames;
+using System.Xml.Linq;
+
 
 namespace OAuth_Library
 {
@@ -20,6 +23,7 @@ namespace OAuth_Library
         public string ClientSecret {get; private set;}
         public EventHandler<OAuthData> OAuth;
         public EventHandler<ErrorData> OnError;
+        #endregion
 
         /// <summary>
         /// Generates a new Instance.
@@ -37,43 +41,53 @@ namespace OAuth_Library
             HttpListener.Start();
             StartListenerAsync();
         }
-        #endregion
-
-
 
         /// <summary>
         /// If you want to know more about the Scopes, please visit the <see href="https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes">Discord Developer Portal</see>
         /// </summary>
         public enum Scope
         {
-            activities_read,
-            activities_write,
-            applications_builds_read,
-            applications_builds_upload,
-            applications_commands,
-            applications_commands_update,
-            applications_commands_permissions_update,
-            applications_entitlements,
-            applications_store_update,
-            bot,
-            connections,
-            dm_channels_read,
+            identify,
             email,
-            gdm_join,
+            connections,
+
             guilds,
             guilds_join,
             guilds_members_read,
-            identify,
-            messages_read,
-            relationships_read,
-            role_connections_write,
+            gdm_join,
+
             rpc,
-            rpc_activities_write,
             rpc_notifications_read,
             rpc_voice_read,
             rpc_voice_write,
-            voice,
+            rpc_video_read,
+            rpc_video_write,
+            rpc_screenshare_read,
+            rpc_screenshare_write,
+            rpc_activities_write,
+
+            bot,
             webhook_incoming,
+            messages_read,
+
+            applications_builds_upload,
+            applications_builds_read,
+            applications_commands,
+            applications_store_update,
+            applications_entitlements,
+
+            activities_read,
+            activities_write,
+
+            relationships_read,
+
+            [Display(Name = "dm_channels.read")]
+            dm_channels_read,
+            [Display(Name = "role_connections.write")]
+            role_connections_write,
+
+            voice,
+            
         }
 
         #region JsonClasses
@@ -84,7 +98,7 @@ namespace OAuth_Library
         }
         public class OAuthData
         {
-            public string State { get; internal set; }
+            public string State { get; set; }
             public string AccessToken { get; set; }
             public string TokenType { get; set; }
             public DateTime Expires { get; set; }
@@ -98,6 +112,13 @@ namespace OAuth_Library
             public int expires_in { get; set; }
             public string refresh_token { get; set; }
             public string scope { get; set; }
+        }
+        private class RawAuthorizationInformation
+        {
+            public Application application { get; set; }
+            public List<string> scopes { get; set; }
+            public DateTime expires { get; set; }
+            public User user { get; set; }
         }
         public class AuthorizationInformation
         {
@@ -123,8 +144,6 @@ namespace OAuth_Library
             public int flags { get; set; }
             public int premium_type { get; set; }
             public int public_flags { get; set; }
-
-
         }
         public class Application
         {
@@ -176,10 +195,32 @@ namespace OAuth_Library
                     {
                         var _RawExchangeData = ExchangeCodeForBearer(Data["code"]);
                         var _Scopes = new List<Scope>();
-                        foreach (string scope in _RawExchangeData.scope.Split(" "))
+                        if (_RawExchangeData.scope != null)
                         {
-                            _Scopes.Add(Scope.Parse<Scope>(scope));
+                            foreach (string scope in _RawExchangeData.scope.Split(" "))
+                            {
+                                bool DisplayNameFound = false;
+                                foreach(var name in Enum.GetNames(typeof(Scope)).ToList())
+                                {
+                                    var DisplayName = typeof(Scope)?.GetMember(name)?.First()?.GetCustomAttribute<DisplayAttribute>()?.Name;
+                                    if(DisplayName != null)
+                                    {
+                                        if(DisplayName == scope)
+                                        {
+                                            DisplayNameFound = true;
+                                            _Scopes.Add(Enum.Parse<Scope>(name));
+                                        }
+                                    } 
+
+                                }
+                                if (!DisplayNameFound)
+                                {
+                                    _Scopes.Add(Enum.Parse<Scope>(scope));
+                                }
+
+                            }
                         }
+                        
                         OAuth?.Invoke(this, new OAuthData() {AccessToken = _RawExchangeData.access_token, Expires = DateTime.Now.AddSeconds(_RawExchangeData.expires_in), RefreshToken = _RawExchangeData.refresh_token, Scopes = _Scopes, State = Data["state"] });
                     }
                 }
@@ -210,21 +251,37 @@ namespace OAuth_Library
             return _RawExchangeData;
         }
 
-
         /// <summary>
         /// Generatas an OAuth Link
         /// </summary>
         /// <param name="_Scopes">The scopes to which the application should have access</param>
-        /// <param name="_State">A number that determines the ID of the OAuth</param>
+        /// <param name="_State">A number that determines the ID of the OAuth. If set to -1 the System is going to pick a random number.</param>
         /// <returns>The URL of the OAuth</returns>
         public string GenerateOAuth(List<Scope> _Scopes, int _State = -1)
         {
-            string FormatedScopes = "";
-            foreach (Scope _Scope in _Scopes)
+            string FormatedScopes;
+            if (_Scopes.Count > 0)
             {
-                FormatedScopes += _Scope.ToString().Replace("_", ".") + "%20";
+                FormatedScopes = "";
+                foreach (Scope _Scope in _Scopes) 
+                {
+                    var tmpScope = _Scope.GetType()?.GetMember(_Scope.ToString())?.First()?.GetCustomAttribute<DisplayAttribute>()?.Name;
+                    if(tmpScope != null)
+                    {
+                        FormatedScopes += tmpScope + "%20";
+                    }
+                    else
+                    {
+                        FormatedScopes += _Scope.ToString().Replace("_", ".") + "%20";
+                    }
+                }
+                FormatedScopes = FormatedScopes.Remove(FormatedScopes.Length - 3);
             }
-            FormatedScopes = FormatedScopes.Remove(FormatedScopes.Length - 3);
+            else
+            {
+                FormatedScopes = null;
+            }
+            
 
             if (_State <= 0)
             {
@@ -240,7 +297,7 @@ namespace OAuth_Library
         /// </summary>
         /// <param name="BearerToken">The Bearer Token, which had been exchanged previously</param>
         /// <returns>An Object with the informations</returns>
-        public AuthorizationInformation GetCurrentAuthorizationInformation(string BearerToken)
+        public AuthorizationInformation GetAuthorizationInformation(string BearerToken)
         {
             string url = $"https://discord.com/api/v10/oauth2/@me";
             HttpClient client = new HttpClient();
@@ -252,7 +309,32 @@ namespace OAuth_Library
             };
 
             var response = client.SendAsync(request).Result.Content.ReadAsStringAsync().Result;
-            return JsonConvert.DeserializeObject<AuthorizationInformation>(response);
+            var _RawAuthorizationInformation = JsonConvert.DeserializeObject<RawAuthorizationInformation>(response);
+            var _Scopes = new List<Scope>();
+            foreach (string scope in _RawAuthorizationInformation.scopes)
+            {
+                bool DisplayNameFound = false;
+                foreach (var name in Enum.GetNames(typeof(Scope)).ToList())
+                {
+                    var DisplayName = typeof(Scope)?.GetMember(name)?.First()?.GetCustomAttribute<DisplayAttribute>()?.Name;
+                    if (DisplayName != null)
+                    {
+                        if (DisplayName == scope)
+                        {
+                            DisplayNameFound = true;
+                            _Scopes.Add(Enum.Parse<Scope>(name));
+                        }
+                    }
+
+                }
+                if (!DisplayNameFound)
+                {
+                    _Scopes.Add(Enum.Parse<Scope>(scope));
+                }
+
+            }
+            
+            return new AuthorizationInformation() { application = _RawAuthorizationInformation.application, expires = _RawAuthorizationInformation.expires, scopes = _Scopes, user = _RawAuthorizationInformation.user };
         }
         #endregion
     }
